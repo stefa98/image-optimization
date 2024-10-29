@@ -47,7 +47,6 @@ export const handler = async (event) => {
         // check if resizing is requested
         var resizingOptions = {};
         if (operationsJSON['width']) resizingOptions.width = parseInt(operationsJSON['width']);
-        if (operationsJSON['height']) resizingOptions.height = parseInt(operationsJSON['height']);
         if (resizingOptions) transformedImage = transformedImage.resize(resizingOptions);
 
         transformedImage = transformedImage

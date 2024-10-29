@@ -6,7 +6,7 @@ function handler(event) {
     var originalImagePath = request.uri;
     //  validate, process and normalize the requested operations in query parameters
     var normalizedOperations = {};
-    format = 'jpeg';
+    var format = 'jpeg'; // Corretto: aggiunta dichiarazione con var
     if (request.headers['accept']) {
         if (request.headers['accept'].value.includes("avif")) {
             format = 'avif';
