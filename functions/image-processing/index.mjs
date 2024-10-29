@@ -38,7 +38,7 @@ export const handler = async (event) => {
     let transformedImage = Sharp(await originalImageBody, { failOn: 'none', animated: true });
     // Get image orientation to rotate if needed
     const imageMetadata = await transformedImage.metadata();
-    // execute the requested operations 
+    // execute the requested operations
     const operationsJSON = Object.fromEntries(operationsPrefix.split(',').map(operation => operation.split('=')));
     // variable holding the server timing header value
     var timingLog = 'img-download;dur=' + parseInt(performance.now() - startTime);
@@ -49,24 +49,33 @@ export const handler = async (event) => {
         if (operationsJSON['width']) resizingOptions.width = parseInt(operationsJSON['width']);
         if (operationsJSON['height']) resizingOptions.height = parseInt(operationsJSON['height']);
         if (resizingOptions) transformedImage = transformedImage.resize(resizingOptions);
+
+        transformedImage = transformedImage
+            .sharpen({
+                sigma: 1.5,
+                m1: 1.5,
+                m2: 2.0
+            })
+            .modulate({
+                brightness: 1.05,
+                contrast: 1.2
+            });
+
         // check if rotation is needed
         if (imageMetadata.orientation) transformedImage = transformedImage.rotate();
+
         // check if formatting is requested
         if (operationsJSON['format']) {
-            var isLossy = false;
             switch (operationsJSON['format']) {
-                case 'jpeg': contentType = 'image/jpeg'; isLossy = true; break;
-                case 'gif': contentType = 'image/gif'; break;
-                case 'webp': contentType = 'image/webp'; isLossy = true; break;
-                case 'png': contentType = 'image/png'; break;
-                case 'avif': contentType = 'image/avif'; isLossy = true; break;
-                default: contentType = 'image/jpeg'; isLossy = true;
+                case 'jpeg': contentType = 'image/jpeg'; break;
+                case 'webp': contentType = 'image/webp'; break;
+                case 'avif': contentType = 'image/avif'; break;
+                default: contentType = 'image/jpeg';
             }
-            if (operationsJSON['quality'] && isLossy) {
-                transformedImage = transformedImage.toFormat(operationsJSON['format'], {
-                    quality: parseInt(operationsJSON['quality']),
-                });
-            } else transformedImage = transformedImage.toFormat(operationsJSON['format']);
+            transformedImage = transformedImage.toFormat(operationsJSON['format'], {
+                quality: 80,
+                force: true
+            });
         } else {
             /// If not format is precised, Sharp converts svg to png by default https://github.com/aws-samples/image-optimization/issues/48
             if (contentType === 'image/svg+xml') contentType = 'image/png';
@@ -93,7 +102,7 @@ export const handler = async (event) => {
             })
             await s3Client.send(putImageCommand);
             timingLog = timingLog + ',img-upload;dur=' + parseInt(performance.now() - startTime);
-            // If the generated image file is too big, send a redirection to the generated image on S3, instead of serving it synchronously from Lambda. 
+            // If the generated image file is too big, send a redirection to the generated image on S3, instead of serving it synchronously from Lambda.
             if (imageTooBig) {
                 return {
                     statusCode: 302,

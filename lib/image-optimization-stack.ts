@@ -1,11 +1,10 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 
-import { Fn, Stack, StackProps, RemovalPolicy, aws_s3 as s3, aws_s3_deployment as s3deploy, aws_cloudfront as cloudfront, aws_cloudfront_origins as origins, aws_lambda as lambda, aws_iam as iam, Duration, CfnOutput, aws_logs as logs } from 'aws-cdk-lib';
+import { CfnOutput, aws_cloudfront as cloudfront, Duration, Fn, aws_iam as iam, aws_lambda as lambda, aws_logs as logs, aws_cloudfront_origins as origins, RemovalPolicy, aws_s3 as s3, aws_s3_deployment as s3deploy, Stack, StackProps } from 'aws-cdk-lib';
 import { CfnDistribution } from "aws-cdk-lib/aws-cloudfront";
 import { Construct } from 'constructs';
 import { getOriginShieldRegion } from './origin-shield';
-import { createHash } from 'crypto';
 
 // Stack Parameters
 
@@ -17,14 +16,14 @@ var S3_IMAGE_BUCKET_NAME: string;
 var CLOUDFRONT_ORIGIN_SHIELD_REGION = getOriginShieldRegion(process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1');
 var CLOUDFRONT_CORS_ENABLED = 'true';
 // Parameters of transformed images
-var S3_TRANSFORMED_IMAGE_EXPIRATION_DURATION = '90';
+var S3_TRANSFORMED_IMAGE_EXPIRATION_DURATION = '360';
 var S3_TRANSFORMED_IMAGE_CACHE_TTL = 'max-age=31622400';
 // Max image size in bytes. If generated images are stored on S3, bigger images are generated, stored on S3
 // and request is redirect to the generated image. Otherwise, an application error is sent.
 var MAX_IMAGE_SIZE = '4700000';
 // Lambda Parameters
-var LAMBDA_MEMORY = '1500';
-var LAMBDA_TIMEOUT = '60';
+var LAMBDA_MEMORY = '2000';
+var LAMBDA_TIMEOUT = '90';
 // Whether to deploy a sample website referenced in https://aws.amazon.com/blogs/networking-and-content-delivery/image-optimization-using-amazon-cloudfront-and-aws-lambda/
 var DEPLOY_SAMPLE_WEBSITE = 'false';
 
@@ -49,17 +48,10 @@ export class ImageOptimizationStack extends Stack {
     super(scope, id, props);
 
     // Change stack parameters based on provided context
-    STORE_TRANSFORMED_IMAGES = this.node.tryGetContext('STORE_TRANSFORMED_IMAGES') || STORE_TRANSFORMED_IMAGES;
-    S3_TRANSFORMED_IMAGE_EXPIRATION_DURATION = this.node.tryGetContext('S3_TRANSFORMED_IMAGE_EXPIRATION_DURATION') || S3_TRANSFORMED_IMAGE_EXPIRATION_DURATION;
-    S3_TRANSFORMED_IMAGE_CACHE_TTL = this.node.tryGetContext('S3_TRANSFORMED_IMAGE_CACHE_TTL') || S3_TRANSFORMED_IMAGE_CACHE_TTL;
     S3_IMAGE_BUCKET_NAME = this.node.tryGetContext('S3_IMAGE_BUCKET_NAME') || S3_IMAGE_BUCKET_NAME;
-    CLOUDFRONT_ORIGIN_SHIELD_REGION = this.node.tryGetContext('CLOUDFRONT_ORIGIN_SHIELD_REGION') || CLOUDFRONT_ORIGIN_SHIELD_REGION;
     CLOUDFRONT_CORS_ENABLED = this.node.tryGetContext('CLOUDFRONT_CORS_ENABLED') || CLOUDFRONT_CORS_ENABLED;
     LAMBDA_MEMORY = this.node.tryGetContext('LAMBDA_MEMORY') || LAMBDA_MEMORY;
-    LAMBDA_TIMEOUT = this.node.tryGetContext('LAMBDA_TIMEOUT') || LAMBDA_TIMEOUT;
-    MAX_IMAGE_SIZE = this.node.tryGetContext('MAX_IMAGE_SIZE') || MAX_IMAGE_SIZE;
-    DEPLOY_SAMPLE_WEBSITE = this.node.tryGetContext('DEPLOY_SAMPLE_WEBSITE') || DEPLOY_SAMPLE_WEBSITE;
-    
+
 
     // deploy a sample website for testing if required
     if (DEPLOY_SAMPLE_WEBSITE === 'true') {
@@ -93,7 +85,7 @@ export class ImageOptimizationStack extends Stack {
     // For the bucket having original images, either use an external one, or create one with some samples photos.
     var originalImageBucket;
     var transformedImageBucket;
-    
+
     if (S3_IMAGE_BUCKET_NAME) {
       originalImageBucket = s3.Bucket.fromBucketName(this, 'imported-original-image-bucket', S3_IMAGE_BUCKET_NAME);
       new CfnOutput(this, 'OriginalImagesS3Bucket', {
@@ -132,7 +124,7 @@ export class ImageOptimizationStack extends Stack {
       });
     }
 
-    // prepare env variable for Lambda 
+    // prepare env variable for Lambda
     var lambdaEnv: LambdaEnv = {
       originalImageBucketName: originalImageBucket.bucketName,
       transformedImageCacheTTL: S3_TRANSFORMED_IMAGE_CACHE_TTL,
@@ -164,7 +156,7 @@ export class ImageOptimizationStack extends Stack {
     // Enable Lambda URL
     const imageProcessingURL = imageProcessing.addFunctionUrl();
 
-    // Leverage CDK Intrinsics to get the hostname of the Lambda URL 
+    // Leverage CDK Intrinsics to get the hostname of the Lambda URL
     const imageProcessingDomainName = Fn.parseDomainName(imageProcessingURL.url);
 
     // Create a CloudFront origin: S3 with fallback to Lambda when image needs to be transformed, otherwise with Lambda as sole origin
@@ -236,7 +228,6 @@ export class ImageOptimizationStack extends Stack {
         // recognizing image requests that were processed by this solution
         customHeadersBehavior: {
           customHeaders: [
-            { header: 'x-aws-image-optimization', value: 'v1.0', override: true },
             { header: 'vary', value: 'accept', override: true },
           ],
         }
@@ -251,7 +242,7 @@ export class ImageOptimizationStack extends Stack {
     // ADD OAC between CloudFront and LambdaURL
     const oac = new cloudfront.CfnOriginAccessControl(this, "OAC", {
       originAccessControlConfig: {
-        name: `oac${this.node.addr}`, 
+        name: `oac${this.node.addr}`,
         originAccessControlOriginType: "lambda",
         signingBehavior: "always",
         signingProtocol: "sigv4",
@@ -259,7 +250,7 @@ export class ImageOptimizationStack extends Stack {
     });
 
     const cfnImageDelivery = imageDelivery.node.defaultChild as CfnDistribution;
-    cfnImageDelivery.addPropertyOverride(`DistributionConfig.Origins.${(STORE_TRANSFORMED_IMAGES === 'true')?"1":"0"}.OriginAccessControlId`, oac.getAtt("Id"));
+    cfnImageDelivery.addPropertyOverride(`DistributionConfig.Origins.${(STORE_TRANSFORMED_IMAGES === 'true') ? "1" : "0"}.OriginAccessControlId`, oac.getAtt("Id"));
 
     imageProcessing.addPermission("AllowCloudFrontServicePrincipal", {
       principal: new iam.ServicePrincipal("cloudfront.amazonaws.com"),
