@@ -61,7 +61,7 @@ export const handler = async (event) => {
                 default: contentType = 'image/jpeg';
             }
             transformedImage = transformedImage.toFormat(operationsJSON['format'], {
-                quality: 80,
+                quality: 95,
                 force: true
             });
         } else {
