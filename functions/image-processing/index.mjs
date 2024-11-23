@@ -49,17 +49,6 @@ export const handler = async (event) => {
         if (operationsJSON['width']) resizingOptions.width = parseInt(operationsJSON['width']);
         if (resizingOptions) transformedImage = transformedImage.resize(resizingOptions);
 
-        transformedImage = transformedImage
-            .sharpen({
-                sigma: 1.5,
-                m1: 1.5,
-                m2: 2.0
-            })
-            .modulate({
-                brightness: 1.05,
-                contrast: 1.2
-            });
-
         // check if rotation is needed
         if (imageMetadata.orientation) transformedImage = transformedImage.rotate();
 

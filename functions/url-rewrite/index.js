@@ -22,7 +22,8 @@ function handler(event) {
                     if (request.querystring[operation]['value']) {
                         var width = parseInt(request.querystring[operation]['value']);
                         if (!isNaN(width) && (width > 0)) {
-                            // you can protect the Lambda function by setting a max value, e.g. if (width > 4000) width = 4000;
+                            // Limita la larghezza massima a 4000 pixel (4K)
+                            if (width > 4000) width = 4000;
                             normalizedOperations['width'] = width.toString();
                         }
                     }
