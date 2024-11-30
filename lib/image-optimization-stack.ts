@@ -3,6 +3,7 @@
 
 import { CfnOutput, aws_cloudfront as cloudfront, Duration, Fn, aws_iam as iam, aws_lambda as lambda, aws_logs as logs, aws_cloudfront_origins as origins, RemovalPolicy, aws_s3 as s3, aws_s3_deployment as s3deploy, Stack, StackProps } from 'aws-cdk-lib';
 import { CfnDistribution } from "aws-cdk-lib/aws-cloudfront";
+import * as s3n from 'aws-cdk-lib/aws-s3-notifications';
 import { Construct } from 'constructs';
 import { getOriginShieldRegion } from './origin-shield';
 
@@ -271,6 +272,8 @@ export class ImageOptimizationStack extends Stack {
 
     // Aggiungi i permessi necessari alla Lambda
     originalImageBucket.grantRead(imageProcessing);
-    transformedImageBucket.grantWrite(imageProcessing);
+    if (transformedImageBucket) {
+      transformedImageBucket.grantWrite(imageProcessing);
+    }
   }
 }
