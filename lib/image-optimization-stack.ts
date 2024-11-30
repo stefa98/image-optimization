@@ -262,5 +262,15 @@ export class ImageOptimizationStack extends Stack {
       description: 'Domain name of image delivery',
       value: imageDelivery.distributionDomainName
     });
+
+    // Aggiungi il permesso per il trigger S3
+    originalImageBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3n.LambdaDestination(imageProcessing)
+    );
+
+    // Aggiungi i permessi necessari alla Lambda
+    originalImageBucket.grantRead(imageProcessing);
+    transformedImageBucket.grantWrite(imageProcessing);
   }
 }
