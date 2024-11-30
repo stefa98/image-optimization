@@ -11,6 +11,9 @@ const TRANSFORMED_IMAGE_CACHE_TTL = process.env.transformedImageCacheTTL;
 const MAX_IMAGE_SIZE = parseInt(process.env.maxImageSize);
 const DEFAULT_WIDTH = 1200;
 
+// Aggiungi le dimensioni comuni da pre-generare
+const COMMON_WIDTHS = [1080, 1200];
+
 export const handler = async (event) => {
     // Verifica se l'evento proviene da S3 (nuovo caricamento)
     if (event.Records && event.Records[0].eventSource === 'aws:s3') {
@@ -200,7 +203,6 @@ async function handleS3Upload(event) {
     const key = decodeURIComponent(event.Records[0].s3.object.key);
 
     try {
-        // Scarica l'immagine originale
         const getOriginalImageCommand = new GetObjectCommand({
             Bucket: bucket,
             Key: key
@@ -214,15 +216,17 @@ async function handleS3Upload(event) {
 
         // Array di task per l'ottimizzazione
         const optimizationTasks = [
-            // Versioni a dimensione originale ottimizzate
-            processAndUploadVariant(originalImageBody, key, 'webp', metadata.width),
-            processAndUploadVariant(originalImageBody, key, 'avif', metadata.width),
-            processAndUploadVariant(originalImageBody, key, 'jpeg', metadata.width),
+            // Versioni a dimensione originale ottimizzate (senza specificare width)
+            processAndUploadVariant(originalImageBody, key, 'webp'),
+            processAndUploadVariant(originalImageBody, key, 'avif'),
+            processAndUploadVariant(originalImageBody, key, 'jpeg'),
 
-            // Versioni a 1200px
-            processAndUploadVariant(originalImageBody, key, 'webp', DEFAULT_WIDTH),
-            processAndUploadVariant(originalImageBody, key, 'avif', DEFAULT_WIDTH),
-            processAndUploadVariant(originalImageBody, key, 'jpeg', DEFAULT_WIDTH)
+            // Versioni pre-generate per tutte le dimensioni comuni
+            ...COMMON_WIDTHS.flatMap(width => [
+                processAndUploadVariant(originalImageBody, key, 'webp', width),
+                processAndUploadVariant(originalImageBody, key, 'avif', width),
+                processAndUploadVariant(originalImageBody, key, 'jpeg', width)
+            ])
         ];
 
         await Promise.all(optimizationTasks);
@@ -237,7 +241,7 @@ async function handleS3Upload(event) {
     }
 }
 
-async function processAndUploadVariant(originalImageBody, originalKey, format, width) {
+async function processAndUploadVariant(originalImageBody, originalKey, format, width = null) {
     try {
         let transformedImage = Sharp(originalImageBody, {
             failOn: 'none',
@@ -245,19 +249,21 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
         });
 
         // Applica le trasformazioni
-        transformedImage = transformedImage
-            .resize({
+        if (width) {
+            transformedImage = transformedImage.resize({
                 width,
                 withoutEnlargement: true,
-                fit: 'inside',        // Mantiene le proporzioni
-                fastShrinkOnLoad: true // Ottimizzazione performance
-            })
-            .rotate(); // Gestisce automaticamente l'orientamento
+                fit: 'inside',
+                fastShrinkOnLoad: true
+            });
+        }
+
+        transformedImage = transformedImage.rotate();
 
         // Ottimizzazione metadata per SEO
         transformedImage = transformedImage.withMetadata({
-            orientation: undefined,  // Rimuove l'orientamento dopo la rotazione
-            density: 72,            // DPI standard per web
+            orientation: undefined,
+            density: 72,
         });
 
         // Imposta il formato con le opzioni di ottimizzazione appropriate
@@ -304,7 +310,9 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
         const buffer = await transformedImage.toBuffer();
 
         // Costruisci il path per la versione ottimizzata
-        const optimizedKey = `${originalKey}/format=${format},width=${width}`;
+        const optimizedKey = width
+            ? `${originalKey}/format=${format},width=${width}`
+            : `${originalKey}/format=${format}`;
 
         // Carica la versione ottimizzata
         const putCommand = new PutObjectCommand({
