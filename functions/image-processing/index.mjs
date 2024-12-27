@@ -13,33 +13,7 @@ const DEFAULT_WIDTH = 1200;
 
 const COMMON_WIDTHS = [640, 750, 828, 1080, 1200, 1920];
 
-const formatOptions = {
-    webp: {
-        quality: 85,
-        effort: 4,
-        smartSubsample: true,
-        nearLossless: false,
-        mixed: true
-    },
-    avif: {
-        quality: 80,
-        effort: 6,
-        chromaSubsampling: '4:2:0',
-        lossless: false
-    },
-    jpeg: {
-        quality: 85,
-        progressive: true,
-        trellisQuantisation: true,
-        overshootDeringing: true,
-        optimizeScans: true,
-        mozjpeg: true,
-        chromaSubsampling: '4:2:0'
-    }
-};
-
 export const handler = async (event) => {
-
     if (event.Records && event.Records[0].eventSource === 'aws:s3') {
         return await handleS3Upload(event);
     }
@@ -87,6 +61,31 @@ export const handler = async (event) => {
 
         // check if rotation is needed
         if (imageMetadata.orientation) transformedImage = transformedImage.rotate();
+
+        const formatOptions = {
+            webp: {
+                quality: 85,
+                effort: 4,
+                smartSubsample: true,
+                nearLossless: false,
+                mixed: true
+            },
+            avif: {
+                quality: 80,
+                effort: 6,
+                chromaSubsampling: '4:2:0',
+                lossless: false
+            },
+            jpeg: {
+                quality: 85,
+                progressive: true,
+                trellisQuantisation: true,
+                overshootDeringing: true,
+                optimizeScans: true,
+                mozjpeg: true,
+                chromaSubsampling: '4:2:0'
+            }
+        };
 
         // check if formatting is requested
         if (operationsJSON['format']) {
@@ -148,20 +147,16 @@ export const handler = async (event) => {
     // Return error if the image is too big and a redirection to the generated image was not possible, else return transformed image
     if (imageTooBig) {
         return sendError(403, 'Requested transformed image is too big', '');
-    } else {
-        const result = {
-            statusCode: 200,
-            body: transformedImage.toString('base64'),
-            isBase64Encoded: true,
-            headers: {
-                'Content-Type': contentType,
-                'Cache-Control': TRANSFORMED_IMAGE_CACHE_TTL,
-                'Server-Timing': timingLog
-            }
-        };
-
-        return result;
-    }
+    } else return {
+        statusCode: 200,
+        body: transformedImage.toString('base64'),
+        isBase64Encoded: true,
+        headers: {
+            'Content-Type': contentType,
+            'Cache-Control': TRANSFORMED_IMAGE_CACHE_TTL,
+            'Server-Timing': timingLog
+        }
+    };
 };
 
 function sendError(statusCode, body, error) {
@@ -228,6 +223,31 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
         }
 
         transformedImage = transformedImage.rotate();
+
+        const formatOptions = {
+            webp: {
+                quality: 85,
+                effort: 4,
+                smartSubsample: true,
+                nearLossless: false,
+                mixed: true
+            },
+            avif: {
+                quality: 80,
+                effort: 6,
+                chromaSubsampling: '4:2:0',
+                lossless: false
+            },
+            jpeg: {
+                quality: 85,
+                progressive: true,
+                trellisQuantisation: true,
+                overshootDeringing: true,
+                optimizeScans: true,
+                mozjpeg: true,
+                chromaSubsampling: '4:2:0'
+            }
+        };
 
         transformedImage = transformedImage.toFormat(format, formatOptions[format] || {
             quality: 82,
