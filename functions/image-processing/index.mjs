@@ -73,7 +73,7 @@ export const handler = async (event) => {
             avif: {
                 quality: 80,
                 effort: 6,
-                chromaSubsampling: '4:2:0',
+                chromaSubsampling: '4:4:4',
                 lossless: false
             },
             jpeg: {
@@ -83,7 +83,7 @@ export const handler = async (event) => {
                 overshootDeringing: true,
                 optimizeScans: true,
                 mozjpeg: true,
-                chromaSubsampling: '4:2:0'
+                chromaSubsampling: '4:4:4'
             }
         };
 
@@ -235,7 +235,7 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
             avif: {
                 quality: 80,
                 effort: 6,
-                chromaSubsampling: '4:2:0',
+                chromaSubsampling: '4:4:4',
                 lossless: false
             },
             jpeg: {
@@ -245,7 +245,7 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
                 overshootDeringing: true,
                 optimizeScans: true,
                 mozjpeg: true,
-                chromaSubsampling: '4:2:0'
+                chromaSubsampling: '4:4:4'
             }
         };
 
