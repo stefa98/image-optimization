@@ -149,8 +149,11 @@ export class ImageOptimizationStack extends Stack {
 
     // IAM policy to read from the S3 bucket containing the original images
     const s3ReadOriginalImagesPolicy = new iam.PolicyStatement({
-      actions: ['s3:GetObject'],
-      resources: ['arn:aws:s3:::' + originalImageBucket.bucketName + '/*'],
+      actions: ['s3:GetObject', 's3:ListBucket'],
+      resources: [
+        'arn:aws:s3:::' + originalImageBucket.bucketName + '/*',
+        'arn:aws:s3:::' + originalImageBucket.bucketName,
+      ],
     });
 
     // statements of the IAM policy to attach to Lambda
@@ -190,9 +193,12 @@ export class ImageOptimizationStack extends Stack {
       });
 
       // write policy for Lambda on the s3 bucket for transformed images
-      var s3WriteTransformedImagesPolicy = new iam.PolicyStatement({
-        actions: ['s3:PutObject'],
-        resources: ['arn:aws:s3:::' + transformedImageBucket.bucketName + '/*'],
+      const s3WriteTransformedImagesPolicy = new iam.PolicyStatement({
+        actions: ['s3:PutObject', 's3:GetObject', 's3:ListBucket'],
+        resources: [
+          'arn:aws:s3:::' + transformedImageBucket.bucketName + '/*',
+          'arn:aws:s3:::' + transformedImageBucket.bucketName,
+        ],
       });
       iamPolicyStatements.push(s3WriteTransformedImagesPolicy);
     } else {
@@ -218,6 +224,9 @@ export class ImageOptimizationStack extends Stack {
       origin: imageOrigin,
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       compress: true,
+      allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+      cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
+      originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
       cachePolicy: new cloudfront.CachePolicy(this, `ImageCachePolicy${this.node.addr}`, {
         defaultTtl: cacheTtl,
         maxTtl: Duration.days(365),
@@ -262,9 +271,10 @@ export class ImageOptimizationStack extends Stack {
     const oac = new cloudfront.CfnOriginAccessControl(this, "OAC", {
       originAccessControlConfig: {
         name: `oac${this.node.addr}`,
-        originAccessControlOriginType: "lambda",
+        originAccessControlOriginType: "custom",
         signingBehavior: "always",
         signingProtocol: "sigv4",
+        description: "Access Control for Image Processing"
       },
     });
 
@@ -292,6 +302,20 @@ export class ImageOptimizationStack extends Stack {
     originalImageBucket.grantRead(imageProcessing);
     if (transformedImageBucket) {
       transformedImageBucket.grantWrite(imageProcessing);
+    }
+
+    if (transformedImageBucket) {
+      // Aggiungi policy al bucket trasformato
+      transformedImageBucket.addToResourcePolicy(new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        resources: [transformedImageBucket.arnForObjects('*')],
+        principals: [new iam.ServicePrincipal('cloudfront.amazonaws.com')],
+        conditions: {
+          StringEquals: {
+            'AWS:SourceArn': `arn:aws:cloudfront::${this.account}:distribution/${imageDelivery.distributionId}`
+          }
+        }
+      }));
     }
   }
 }
