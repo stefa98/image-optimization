@@ -151,7 +151,6 @@ export class ImageOptimizationStack extends Stack {
       memorySize: parseInt(LAMBDA_MEMORY),
       environment: lambdaEnv,
       logRetention: logs.RetentionDays.ONE_DAY,
-      architecture: lambda.Architecture.ARM_64,
     };
     var imageProcessing = new lambda.Function(this, 'image-optimization', lambdaProps);
 
