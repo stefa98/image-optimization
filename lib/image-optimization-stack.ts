@@ -23,8 +23,8 @@ var S3_TRANSFORMED_IMAGE_CACHE_TTL = 'max-age=31622400';
 // and request is redirect to the generated image. Otherwise, an application error is sent.
 var MAX_IMAGE_SIZE = '4700000';
 // Lambda Parameters
-var LAMBDA_MEMORY = '2000';
-var LAMBDA_TIMEOUT = '90';
+var LAMBDA_MEMORY = '3008';
+var LAMBDA_TIMEOUT = '60';
 // Whether to deploy a sample website referenced in https://aws.amazon.com/blogs/networking-and-content-delivery/image-optimization-using-amazon-cloudfront-and-aws-lambda/
 var DEPLOY_SAMPLE_WEBSITE = 'false';
 
@@ -151,6 +151,7 @@ export class ImageOptimizationStack extends Stack {
       memorySize: parseInt(LAMBDA_MEMORY),
       environment: lambdaEnv,
       logRetention: logs.RetentionDays.ONE_DAY,
+      architecture: lambda.Architecture.ARM_64,
     };
     var imageProcessing = new lambda.Function(this, 'image-optimization', lambdaProps);
 
@@ -202,11 +203,14 @@ export class ImageOptimizationStack extends Stack {
     var imageDeliveryCacheBehaviorConfig: ImageDeliveryCacheBehaviorConfig = {
       origin: imageOrigin,
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-      compress: false,
+      compress: true,
       cachePolicy: new cloudfront.CachePolicy(this, `ImageCachePolicy${this.node.addr}`, {
-        defaultTtl: Duration.hours(24),
+        defaultTtl: Duration.days(30),
         maxTtl: Duration.days(365),
-        minTtl: Duration.seconds(0)
+        minTtl: Duration.hours(24),
+        enableAcceptEncodingGzip: true,
+        enableAcceptEncodingBrotli: true,
+        queryStringBehavior: cloudfront.CacheQueryStringBehavior.allowList('width', 'format'),
       }),
       functionAssociations: [{
         eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
