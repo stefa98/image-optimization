@@ -11,7 +11,7 @@ const TRANSFORMED_IMAGE_CACHE_TTL = process.env.transformedImageCacheTTL;
 const MAX_IMAGE_SIZE = parseInt(process.env.maxImageSize);
 const DEFAULT_WIDTH = 1200;
 
-const COMMON_WIDTHS = [320, 640, 768, 1024, 1366, 1600, 1920];
+const COMMON_WIDTHS = [640, 750, 828, 1080, 1200, 1920];
 
 const formatOptions = {
     webp: {
