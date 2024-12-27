@@ -22,13 +22,9 @@ function handler(event) {
                     if (request.querystring[operation]['value']) {
                         var width = parseInt(request.querystring[operation]['value']);
                         if (!isNaN(width) && (width > 0)) {
-                            // Verifica se la larghezza richiesta è tra quelle supportate
-                            const supportedWidths = [300, 640, 750, 828, 1080, 1200, 1920];
-                            // Trova la larghezza supportata più vicina
-                            const closestWidth = supportedWidths.reduce((prev, curr) => {
-                                return (Math.abs(curr - width) < Math.abs(prev - width) ? curr : prev);
-                            });
-                            normalizedOperations['width'] = closestWidth.toString();
+                            // Limita la larghezza massima a 1920 pixel (4K)
+                            if (width > 1920) width = 1920;
+                            normalizedOperations['width'] = width.toString();
                         }
                     }
                     break;
