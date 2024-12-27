@@ -8,6 +8,14 @@ import { Construct } from 'constructs';
 import { getOriginShieldRegion } from './origin-shield';
 
 // Stack Parameters
+interface ImageOptimizationProps extends StackProps {
+  imageOptimizationProps?: {
+    lambdaMemorySize?: number;
+    lambdaTimeout?: Duration;
+    cachingEnabled?: boolean;
+    cacheTtl?: Duration;
+  }
+}
 
 // related to architecture. If set to false, transformed images are not stored in S3, and all image requests land on Lambda
 var STORE_TRANSFORMED_IMAGES = 'true';
@@ -23,8 +31,8 @@ var S3_TRANSFORMED_IMAGE_CACHE_TTL = 'max-age=31622400';
 // and request is redirect to the generated image. Otherwise, an application error is sent.
 var MAX_IMAGE_SIZE = '4700000';
 // Lambda Parameters
-var LAMBDA_MEMORY = '2000';
-var LAMBDA_TIMEOUT = '90';
+var LAMBDA_MEMORY = '3008';
+var LAMBDA_TIMEOUT = '60';
 // Whether to deploy a sample website referenced in https://aws.amazon.com/blogs/networking-and-content-delivery/image-optimization-using-amazon-cloudfront-and-aws-lambda/
 var DEPLOY_SAMPLE_WEBSITE = 'false';
 
@@ -45,8 +53,14 @@ type LambdaEnv = {
 }
 
 export class ImageOptimizationStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props?: ImageOptimizationProps) {
     super(scope, id, props);
+
+    // Usa i valori dai props o i default
+    const lambdaMemory = props?.imageOptimizationProps?.lambdaMemorySize || 3008;
+    const lambdaTimeout = props?.imageOptimizationProps?.lambdaTimeout || Duration.seconds(60);
+    const cachingEnabled = props?.imageOptimizationProps?.cachingEnabled ?? true;
+    const cacheTtl = props?.imageOptimizationProps?.cacheTtl || Duration.days(30);
 
     // Change stack parameters based on provided context
     S3_IMAGE_BUCKET_NAME = this.node.tryGetContext('S3_IMAGE_BUCKET_NAME') || S3_IMAGE_BUCKET_NAME;
@@ -147,10 +161,11 @@ export class ImageOptimizationStack extends Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset('functions/image-processing'),
-      timeout: Duration.seconds(parseInt(LAMBDA_TIMEOUT)),
-      memorySize: parseInt(LAMBDA_MEMORY),
+      timeout: lambdaTimeout,
+      memorySize: lambdaMemory,
       environment: lambdaEnv,
       logRetention: logs.RetentionDays.ONE_DAY,
+      architecture: lambda.Architecture.ARM_64,
     };
     var imageProcessing = new lambda.Function(this, 'image-optimization', lambdaProps);
 
@@ -202,11 +217,14 @@ export class ImageOptimizationStack extends Stack {
     var imageDeliveryCacheBehaviorConfig: ImageDeliveryCacheBehaviorConfig = {
       origin: imageOrigin,
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-      compress: false,
+      compress: true,
       cachePolicy: new cloudfront.CachePolicy(this, `ImageCachePolicy${this.node.addr}`, {
-        defaultTtl: Duration.hours(24),
+        defaultTtl: cacheTtl,
         maxTtl: Duration.days(365),
-        minTtl: Duration.seconds(0)
+        minTtl: Duration.hours(24),
+        enableAcceptEncodingGzip: true,
+        enableAcceptEncodingBrotli: true,
+        queryStringBehavior: cloudfront.CacheQueryStringBehavior.allowList('width', 'format'),
       }),
       functionAssociations: [{
         eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
