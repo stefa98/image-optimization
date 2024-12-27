@@ -38,14 +38,7 @@ const formatOptions = {
     }
 };
 
-const imageCache = new Map();
-const CACHE_SIZE = 100;
-
 export const handler = async (event) => {
-    const cacheKey = JSON.stringify(event);
-    if (imageCache.has(cacheKey)) {
-        return imageCache.get(cacheKey);
-    }
 
     if (event.Records && event.Records[0].eventSource === 'aws:s3') {
         return await handleS3Upload(event);
@@ -166,12 +159,6 @@ export const handler = async (event) => {
                 'Server-Timing': timingLog
             }
         };
-
-        if (imageCache.size >= CACHE_SIZE) {
-            const firstKey = imageCache.keys().next().value;
-            imageCache.delete(firstKey);
-        }
-        imageCache.set(cacheKey, result);
 
         return result;
     }
