@@ -11,9 +11,42 @@ const TRANSFORMED_IMAGE_CACHE_TTL = process.env.transformedImageCacheTTL;
 const MAX_IMAGE_SIZE = parseInt(process.env.maxImageSize);
 const DEFAULT_WIDTH = 1200;
 
-const COMMON_WIDTHS = [1080, 1200];
+const COMMON_WIDTHS = [640, 750, 828, 1080, 1200, 1920];
+
+const formatOptions = {
+    webp: {
+        quality: 85,
+        effort: 4,
+        smartSubsample: true,
+        nearLossless: false,
+        mixed: true
+    },
+    avif: {
+        quality: 80,
+        effort: 6,
+        chromaSubsampling: '4:2:0',
+        lossless: false
+    },
+    jpeg: {
+        quality: 85,
+        progressive: true,
+        trellisQuantisation: true,
+        overshootDeringing: true,
+        optimizeScans: true,
+        mozjpeg: true,
+        chromaSubsampling: '4:2:0'
+    }
+};
+
+const imageCache = new Map();
+const CACHE_SIZE = 100;
 
 export const handler = async (event) => {
+    const cacheKey = JSON.stringify(event);
+    if (imageCache.has(cacheKey)) {
+        return imageCache.get(cacheKey);
+    }
+
     if (event.Records && event.Records[0].eventSource === 'aws:s3') {
         return await handleS3Upload(event);
     }
@@ -61,31 +94,6 @@ export const handler = async (event) => {
 
         // check if rotation is needed
         if (imageMetadata.orientation) transformedImage = transformedImage.rotate();
-
-        const formatOptions = {
-            webp: {
-                quality: 80,
-                effort: 6,
-                smartSubsample: true,
-                nearLossless: false,
-                mixed: true
-            },
-            avif: {
-                quality: 75,
-                effort: 8,
-                chromaSubsampling: '4:4:4',
-                lossless: false
-            },
-            jpeg: {
-                quality: 82,
-                progressive: true,
-                trellisQuantisation: true,
-                overshootDeringing: true,
-                optimizeScans: true,
-                mozjpeg: true,
-                chromaSubsampling: '4:4:4'
-            }
-        };
 
         // check if formatting is requested
         if (operationsJSON['format']) {
@@ -147,16 +155,26 @@ export const handler = async (event) => {
     // Return error if the image is too big and a redirection to the generated image was not possible, else return transformed image
     if (imageTooBig) {
         return sendError(403, 'Requested transformed image is too big', '');
-    } else return {
-        statusCode: 200,
-        body: transformedImage.toString('base64'),
-        isBase64Encoded: true,
-        headers: {
-            'Content-Type': contentType,
-            'Cache-Control': TRANSFORMED_IMAGE_CACHE_TTL,
-            'Server-Timing': timingLog
+    } else {
+        const result = {
+            statusCode: 200,
+            body: transformedImage.toString('base64'),
+            isBase64Encoded: true,
+            headers: {
+                'Content-Type': contentType,
+                'Cache-Control': TRANSFORMED_IMAGE_CACHE_TTL,
+                'Server-Timing': timingLog
+            }
+        };
+
+        if (imageCache.size >= CACHE_SIZE) {
+            const firstKey = imageCache.keys().next().value;
+            imageCache.delete(firstKey);
         }
-    };
+        imageCache.set(cacheKey, result);
+
+        return result;
+    }
 };
 
 function sendError(statusCode, body, error) {
@@ -223,31 +241,6 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
         }
 
         transformedImage = transformedImage.rotate();
-
-        const formatOptions = {
-            webp: {
-                quality: 80,
-                effort: 6,
-                smartSubsample: true,
-                nearLossless: false,
-                mixed: true
-            },
-            avif: {
-                quality: 75,
-                effort: 8,
-                chromaSubsampling: '4:4:4',
-                lossless: false
-            },
-            jpeg: {
-                quality: 82,
-                progressive: true,
-                trellisQuantisation: true,
-                overshootDeringing: true,
-                optimizeScans: true,
-                mozjpeg: true,
-                chromaSubsampling: '4:4:4'
-            }
-        };
 
         transformedImage = transformedImage.toFormat(format, formatOptions[format] || {
             quality: 82,
