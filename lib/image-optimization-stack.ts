@@ -8,14 +8,6 @@ import { Construct } from 'constructs';
 import { getOriginShieldRegion } from './origin-shield';
 
 // Stack Parameters
-interface ImageOptimizationProps extends StackProps {
-  imageOptimizationProps?: {
-    lambdaMemorySize?: number;
-    lambdaTimeout?: Duration;
-    cachingEnabled?: boolean;
-    cacheTtl?: Duration;
-  }
-}
 
 // related to architecture. If set to false, transformed images are not stored in S3, and all image requests land on Lambda
 var STORE_TRANSFORMED_IMAGES = 'true';
@@ -31,8 +23,8 @@ var S3_TRANSFORMED_IMAGE_CACHE_TTL = 'max-age=31622400';
 // and request is redirect to the generated image. Otherwise, an application error is sent.
 var MAX_IMAGE_SIZE = '4700000';
 // Lambda Parameters
-var LAMBDA_MEMORY = '3008';
-var LAMBDA_TIMEOUT = '60';
+var LAMBDA_MEMORY = '2000';
+var LAMBDA_TIMEOUT = '90';
 // Whether to deploy a sample website referenced in https://aws.amazon.com/blogs/networking-and-content-delivery/image-optimization-using-amazon-cloudfront-and-aws-lambda/
 var DEPLOY_SAMPLE_WEBSITE = 'false';
 
@@ -53,14 +45,8 @@ type LambdaEnv = {
 }
 
 export class ImageOptimizationStack extends Stack {
-  constructor(scope: Construct, id: string, props?: ImageOptimizationProps) {
+  constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
-
-    // Usa i valori dai props o i default
-    const lambdaMemory = props?.imageOptimizationProps?.lambdaMemorySize || 3008;
-    const lambdaTimeout = props?.imageOptimizationProps?.lambdaTimeout || Duration.seconds(60);
-    const cachingEnabled = props?.imageOptimizationProps?.cachingEnabled ?? true;
-    const cacheTtl = props?.imageOptimizationProps?.cacheTtl || Duration.days(30);
 
     // Change stack parameters based on provided context
     S3_IMAGE_BUCKET_NAME = this.node.tryGetContext('S3_IMAGE_BUCKET_NAME') || S3_IMAGE_BUCKET_NAME;
@@ -149,11 +135,8 @@ export class ImageOptimizationStack extends Stack {
 
     // IAM policy to read from the S3 bucket containing the original images
     const s3ReadOriginalImagesPolicy = new iam.PolicyStatement({
-      actions: ['s3:GetObject', 's3:ListBucket'],
-      resources: [
-        'arn:aws:s3:::' + originalImageBucket.bucketName + '/*',
-        'arn:aws:s3:::' + originalImageBucket.bucketName,
-      ],
+      actions: ['s3:GetObject'],
+      resources: ['arn:aws:s3:::' + originalImageBucket.bucketName + '/*'],
     });
 
     // statements of the IAM policy to attach to Lambda
@@ -164,11 +147,10 @@ export class ImageOptimizationStack extends Stack {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset('functions/image-processing'),
-      timeout: lambdaTimeout,
-      memorySize: lambdaMemory,
+      timeout: Duration.seconds(parseInt(LAMBDA_TIMEOUT)),
+      memorySize: parseInt(LAMBDA_MEMORY),
       environment: lambdaEnv,
       logRetention: logs.RetentionDays.ONE_DAY,
-      architecture: lambda.Architecture.ARM_64,
     };
     var imageProcessing = new lambda.Function(this, 'image-optimization', lambdaProps);
 
@@ -193,12 +175,9 @@ export class ImageOptimizationStack extends Stack {
       });
 
       // write policy for Lambda on the s3 bucket for transformed images
-      const s3WriteTransformedImagesPolicy = new iam.PolicyStatement({
-        actions: ['s3:PutObject', 's3:GetObject', 's3:ListBucket'],
-        resources: [
-          'arn:aws:s3:::' + transformedImageBucket.bucketName + '/*',
-          'arn:aws:s3:::' + transformedImageBucket.bucketName,
-        ],
+      var s3WriteTransformedImagesPolicy = new iam.PolicyStatement({
+        actions: ['s3:PutObject'],
+        resources: ['arn:aws:s3:::' + transformedImageBucket.bucketName + '/*'],
       });
       iamPolicyStatements.push(s3WriteTransformedImagesPolicy);
     } else {
@@ -223,17 +202,11 @@ export class ImageOptimizationStack extends Stack {
     var imageDeliveryCacheBehaviorConfig: ImageDeliveryCacheBehaviorConfig = {
       origin: imageOrigin,
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-      compress: true,
-      allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
-      cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
-      originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
+      compress: false,
       cachePolicy: new cloudfront.CachePolicy(this, `ImageCachePolicy${this.node.addr}`, {
-        defaultTtl: cacheTtl,
+        defaultTtl: Duration.hours(24),
         maxTtl: Duration.days(365),
-        minTtl: Duration.hours(24),
-        enableAcceptEncodingGzip: true,
-        enableAcceptEncodingBrotli: true,
-        queryStringBehavior: cloudfront.CacheQueryStringBehavior.allowList('width', 'format'),
+        minTtl: Duration.seconds(0)
       }),
       functionAssociations: [{
         eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
@@ -271,10 +244,9 @@ export class ImageOptimizationStack extends Stack {
     const oac = new cloudfront.CfnOriginAccessControl(this, "OAC", {
       originAccessControlConfig: {
         name: `oac${this.node.addr}`,
-        originAccessControlOriginType: "custom",
+        originAccessControlOriginType: "lambda",
         signingBehavior: "always",
         signingProtocol: "sigv4",
-        description: "Access Control for Image Processing"
       },
     });
 
@@ -302,20 +274,6 @@ export class ImageOptimizationStack extends Stack {
     originalImageBucket.grantRead(imageProcessing);
     if (transformedImageBucket) {
       transformedImageBucket.grantWrite(imageProcessing);
-    }
-
-    if (transformedImageBucket) {
-      // Aggiungi policy al bucket trasformato
-      transformedImageBucket.addToResourcePolicy(new iam.PolicyStatement({
-        actions: ['s3:GetObject'],
-        resources: [transformedImageBucket.arnForObjects('*')],
-        principals: [new iam.ServicePrincipal('cloudfront.amazonaws.com')],
-        conditions: {
-          StringEquals: {
-            'AWS:SourceArn': `arn:aws:cloudfront::${this.account}:distribution/${imageDelivery.distributionId}`
-          }
-        }
-      }));
     }
   }
 }
