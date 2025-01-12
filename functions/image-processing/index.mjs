@@ -15,26 +15,29 @@ const COMMON_WIDTHS = [640, 750, 828, 1080, 1200, 1920];
 
 const formatOptions = {
     webp: {
-        quality: 85,
-        effort: 4,
-        smartSubsample: true,
-        nearLossless: false,
-        mixed: true
-    },
-    avif: {
         quality: 80,
         effort: 6,
+        smartSubsample: true,
+        nearLossless: false,
+        mixed: true,
+        reductionEffort: 6
+    },
+    avif: {
+        quality: 75,
+        effort: 8,
         chromaSubsampling: '4:2:0',
-        lossless: false
+        lossless: false,
+        speed: 0
     },
     jpeg: {
-        quality: 85,
+        quality: 80,
         progressive: true,
         trellisQuantisation: true,
         overshootDeringing: true,
         optimizeScans: true,
         mozjpeg: true,
-        chromaSubsampling: '4:2:0'
+        chromaSubsampling: '4:2:0',
+        quantisationTable: 3
     }
 };
 
@@ -209,6 +212,22 @@ async function handleS3Upload(event) {
     }
 }
 
+async function optimizeByDimensions(image, format, width) {
+    const metadata = await image.metadata();
+    let quality = 80;
+
+    if (width && width < 800) {
+        quality = 75;
+    } else if (metadata.width > 2000) {
+        quality = 70;
+    }
+
+    const options = { ...formatOptions[format] };
+    options.quality = quality;
+
+    return options;
+}
+
 async function processAndUploadVariant(originalImageBody, originalKey, format, width = null) {
     try {
         let transformedImage = Sharp(originalImageBody, {
@@ -227,10 +246,8 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
 
         transformedImage = transformedImage.rotate();
 
-        transformedImage = transformedImage.toFormat(format, formatOptions[format] || {
-            quality: 82,
-            progressive: true
-        });
+        const optimizedOptions = await optimizeByDimensions(transformedImage, format, width);
+        transformedImage = transformedImage.toFormat(format, optimizedOptions);
 
         const buffer = await transformedImage.toBuffer();
 
