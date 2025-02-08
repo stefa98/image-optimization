@@ -62,7 +62,6 @@ export const handler = async (event) => {
     try {
         const getOriginalImageCommand = new GetObjectCommand({ Bucket: S3_ORIGINAL_IMAGE_BUCKET, Key: originalImagePath });
         const getOriginalImageCommandOutput = await s3Client.send(getOriginalImageCommand);
-        console.log(`Got response from S3 for ${originalImagePath}`);
 
         originalImageBody = getOriginalImageCommandOutput.Body.transformToByteArray();
         contentType = getOriginalImageCommandOutput.ContentType;
@@ -188,21 +187,49 @@ async function handleS3Upload(event) {
         const originalImageBody = await originalImage.Body.transformToByteArray();
         const contentType = originalImage.ContentType;
 
-        const metadata = await Sharp(originalImageBody).metadata();
+        // Skip processing if not an image
+        if (!contentType.startsWith('image/')) {
+            return {
+                statusCode: 200,
+                body: 'Skipped non-image file'
+            };
+        }
 
-        const optimizationTasks = [
-            processAndUploadVariant(originalImageBody, key, 'webp'),
-            processAndUploadVariant(originalImageBody, key, 'avif'),
+        // Check file size (1MB = 1048576 bytes)
+        const isLargeImage = originalImage.ContentLength > 1048576;
 
-            ...COMMON_WIDTHS.flatMap(width => [
-                processAndUploadVariant(originalImageBody, key, 'webp', width),
-                processAndUploadVariant(originalImageBody, key, 'avif', width)
-            ])
-        ];
+        // For large images, only process WebP
+        const optimizationTasks = [];
 
-        await Promise.all(optimizationTasks);
+        if (isLargeImage) {
+            optimizationTasks.push(
+                processAndUploadVariant(originalImageBody, key, 'webp'),
+                ...COMMON_WIDTHS.map(width =>
+                    processAndUploadVariant(originalImageBody, key, 'webp', width)
+                )
+            );
+        } else {
+            // For smaller images, process both WebP and AVIF
+            optimizationTasks.push(
+                processAndUploadVariant(originalImageBody, key, 'webp'),
+                processAndUploadVariant(originalImageBody, key, 'avif'),
+                ...COMMON_WIDTHS.flatMap(width => [
+                    processAndUploadVariant(originalImageBody, key, 'webp', width),
+                    processAndUploadVariant(originalImageBody, key, 'avif', width)
+                ])
+            );
+        }
 
-        console.log(`Successfully pre-generated optimized versions for ${key}`);
+        // Use Promise.allSettled instead of Promise.all to continue even if some variants fail
+        const results = await Promise.allSettled(optimizationTasks);
+
+        // Log any failures
+        results.forEach((result, index) => {
+            if (result.status === 'rejected') {
+                console.error(`Task ${index} failed:`, result.reason);
+            }
+        });
+
         return {
             statusCode: 200,
             body: 'Image optimization completed'
@@ -212,11 +239,16 @@ async function handleS3Upload(event) {
     }
 }
 
+// Modify optimizeByDimensions to adjust quality based on image size
 async function optimizeByDimensions(image, format, width) {
     const metadata = await image.metadata();
     let quality = 80;
 
-    if (width && width < 800) {
+    // Reduce quality for large images
+    const fileSize = metadata.size || 0;
+    if (fileSize > 1048576) { // larger than 1MB
+        quality = 65;
+    } else if (width && width < 800) {
         quality = 75;
     } else if (metadata.width > 2000) {
         quality = 70;
@@ -225,15 +257,31 @@ async function optimizeByDimensions(image, format, width) {
     const options = { ...formatOptions[format] };
     options.quality = quality;
 
+    // For large WebP images, optimize for size
+    if (format === 'webp' && fileSize > 1048576) {
+        options.effort = 6;
+        options.quality = 65;
+        options.smartSubsample = true;
+    }
+
     return options;
 }
 
 async function processAndUploadVariant(originalImageBody, originalKey, format, width = null) {
     try {
+        // Initialize Sharp with better error handling
         let transformedImage = Sharp(originalImageBody, {
             failOn: 'none',
-            animated: true
+            animated: true,
+            limitInputPixels: false // Allow processing of larger images
         });
+
+        // Get initial metadata to verify image is valid
+        const metadata = await transformedImage.metadata();
+        if (!metadata) {
+            console.warn(`Skipping ${format} variant for ${originalKey}: Invalid image metadata`);
+            return; // Skip this variant instead of throwing error
+        }
 
         if (width) {
             transformedImage = transformedImage.resize({
@@ -244,12 +292,26 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
             });
         }
 
-        transformedImage = transformedImage.rotate();
+        // Handle rotation based on EXIF data
+        if (metadata.orientation) {
+            transformedImage = transformedImage.rotate();
+        }
+
+        // For PNG images specifically, convert to JPEG before AVIF conversion
+        if (format === 'avif' && metadata.format === 'png') {
+            transformedImage = transformedImage.toFormat('jpeg', { quality: 100 });
+        }
 
         const optimizedOptions = await optimizeByDimensions(transformedImage, format, width);
         transformedImage = transformedImage.toFormat(format, optimizedOptions);
 
         const buffer = await transformedImage.toBuffer();
+
+        // Skip upload if buffer is empty
+        if (!buffer || buffer.length === 0) {
+            console.warn(`Skipping ${format} variant for ${originalKey}: Empty buffer generated`);
+            return;
+        }
 
         const optimizedKey = width
             ? `${originalKey}/format=${format},width=${width}`
@@ -264,9 +326,12 @@ async function processAndUploadVariant(originalImageBody, originalKey, format, w
         });
 
         await s3Client.send(putCommand);
-        console.log(`Uploaded optimized version: ${optimizedKey}`);
     } catch (error) {
+        // Log error but don't throw, allowing other variants to continue
         console.error(`Error processing variant ${format} for ${originalKey}:`, error);
-        throw error;
+        // Only throw if this is a critical error that should stop all processing
+        if (error.message.includes('memory') || error.message.includes('allocation')) {
+            throw error;
+        }
     }
 }
